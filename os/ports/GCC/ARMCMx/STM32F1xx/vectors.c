@@ -235,9 +235,6 @@ vectors_t _vectors = {
  *
  * @notapi
  */
-#if !defined(__DOXYGEN__)
-__attribute__ ((naked))
-#endif
 void _unhandled_exception(void) {
 
   while (TRUE)
