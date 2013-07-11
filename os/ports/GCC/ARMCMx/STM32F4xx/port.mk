@@ -5,7 +5,9 @@ PORTSRC = $(CHIBIOS)/os/ports/GCC/ARMCMx/crt0.c \
           ${CHIBIOS}/os/ports/GCC/ARMCMx/chcore_v7m.c \
           ${CHIBIOS}/os/ports/common/ARMCMx/nvic.c
 
-PORTASM =
+# .s extension is required by chibios example makefiles
+# .S is more appropriate
+PORTASM = ${CHIBIOS}/os/ports/GCC/ARMCMx/chcoreasm_v7m.s
 
 PORTINC = ${CHIBIOS}/os/ports/common/ARMCMx/CMSIS/include \
           ${CHIBIOS}/os/ports/common/ARMCMx \
