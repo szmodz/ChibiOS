@@ -212,6 +212,10 @@ void stm32_clock_init(void) {
   /* After PLL activation because the special requirements for TIM1 and
      TIM8 bits.*/
   RCC->CFGR3 |= STM32_TIM8SW | STM32_TIM1SW;
+
+#if !STM32_HSI_ENABLED
+  RCC->CR &= ~RCC_CR_HSION;
+#endif
 #endif /* !STM32_NO_INIT */
 }
 
