@@ -566,6 +566,14 @@ typedef struct {
    * @brief Initialization value for the CR3 register.
    */
   uint16_t                  cr3;
+  /**
+   * @brief FIFO buffer pointer.
+   */
+  void                     *rxfifo;
+  /**
+   * @brief FIFO size.
+   */
+  uint32_t                  rxfifo_size;
 } UARTConfig;
 
 /**
@@ -629,9 +637,9 @@ struct UARTDriver {
    */
   const stm32_dma_stream_t  *dmatx;
   /**
-   * @brief Default receive buffer while into @p UART_RX_IDLE state.
+   * @brief Remaining count to end of receive FIFO while in @p UART_RX_IDLE state.
    */
-  volatile uint16_t         rxbuf;
+  size_t                    rxcnt;
 };
 
 /*===========================================================================*/

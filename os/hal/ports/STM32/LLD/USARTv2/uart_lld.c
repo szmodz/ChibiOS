@@ -180,16 +180,17 @@ static uartflags_t translate_errors(uint32_t isr) {
  * @param[in] uartp     pointer to the @p UARTDriver object
  */
 static void uart_enter_rx_idle_loop(UARTDriver *uartp) {
-  uint32_t mode;
-  
+  uint32_t mode = STM32_DMA_CR_DIR_P2M | STM32_DMA_CR_MINC | STM32_DMA_CR_CIRC;
+
   /* RX DMA channel preparation, if the char callback is defined then the
      TCIE interrupt is enabled too.*/
-  if (uartp->config->rxchar_cb == NULL)
-    mode = STM32_DMA_CR_DIR_P2M | STM32_DMA_CR_CIRC;
-  else
-    mode = STM32_DMA_CR_DIR_P2M | STM32_DMA_CR_CIRC | STM32_DMA_CR_TCIE;
-  dmaStreamSetMemory0(uartp->dmarx, &uartp->rxbuf);
-  dmaStreamSetTransactionSize(uartp->dmarx, 1);
+  if (uartp->config->rxchar_cb != NULL) {
+    mode |= STM32_DMA_CR_HTIE | STM32_DMA_CR_TCIE;
+    uartp->usart->CR1 |= USART_CR1_IDLEIE;
+    uartp->rxcnt = uartp->config->rxfifo_size;
+  }
+  dmaStreamSetMemory0(uartp->dmarx, uartp->config->rxfifo);
+  dmaStreamSetTransactionSize(uartp->dmarx, uartp->config->rxfifo_size);
   dmaStreamSetMode(uartp->dmarx, uartp->dmamode | mode);
   dmaStreamEnable(uartp->dmarx);
 }
@@ -246,6 +247,35 @@ static void usart_start(UARTDriver *uartp) {
   uart_enter_rx_idle_loop(uartp);
 }
 
+static void uart_lld_drain_rx_fifo(UARTDriver *uartp) {
+  size_t rxcnt0 = dmaStreamGetTransactionSize(uartp->dmarx);
+  size_t rxcnt1 = uartp->rxcnt;
+  if (rxcnt0 != rxcnt1) {
+    uartp->rxcnt = rxcnt0;
+
+    size_t size = uartp->config->rxfifo_size;
+    size_t cur = size - rxcnt1;
+    size_t end = size - rxcnt0;
+
+    osalDbgAssert(cur < size && end < size, "bad FIFO pointers");
+
+    if ((uartp->dmamode & STM32_DMA_CR_MSIZE_MASK) == STM32_DMA_CR_MSIZE_BYTE) {
+      uint8_t *src = uartp->config->rxfifo;
+      do {
+        uartp->config->rxchar_cb(uartp, src[cur]);
+        if (++cur == size) cur = 0;
+      } while (cur != end);
+    }
+    else {
+      uint16_t *src = uartp->config->rxfifo;
+      do {
+        uartp->config->rxchar_cb(uartp, src[cur]);
+        if (++cur == size) cur = 0;
+      } while (cur != end);
+    }
+  }
+}
+
 /**
  * @brief   RX DMA common service routine.
  *
@@ -264,9 +294,7 @@ static void uart_lld_serve_rx_end_irq(UARTDriver *uartp, uint32_t flags) {
 #endif
 
   if (uartp->rxstate == UART_RX_IDLE) {
-    /* Receiver in idle state, a callback is generated, if enabled, for each
-       received character and then the driver stays in the same state.*/
-    _uart_rx_idle_code(uartp);
+    uart_lld_drain_rx_fifo(uartp);
   }
   else {
     /* Receiver in active state, a callback is generated, if enabled, after
@@ -316,6 +344,13 @@ static void serve_usart_irq(UARTDriver *uartp) {
   if (isr & (USART_ISR_LBDF | USART_ISR_ORE | USART_ISR_NE |
              USART_ISR_FE   | USART_ISR_PE)) {
     _uart_rx_error_isr_code(uartp, translate_errors(isr));
+  }
+
+  if (isr & USART_ISR_IDLE) {
+    if (uartp->rxstate == UART_RX_IDLE) {
+      if (uartp->config->rxchar_cb != NULL)
+        uart_lld_drain_rx_fifo(uartp);
+    }
   }
 
   if ((isr & USART_ISR_TC) && (cr1 & USART_CR1_TCIE)) {
@@ -743,7 +778,6 @@ void uart_lld_start(UARTDriver *uartp) {
       uartp->dmamode |= STM32_DMA_CR_PSIZE_HWORD | STM32_DMA_CR_MSIZE_HWORD;
     dmaStreamSetPeripheral(uartp->dmarx, &uartp->usart->RDR);
     dmaStreamSetPeripheral(uartp->dmatx, &uartp->usart->TDR);
-    uartp->rxbuf = 0;
   }
 
   uartp->rxstate = UART_RX_IDLE;
@@ -893,6 +927,7 @@ size_t uart_lld_stop_send(UARTDriver *uartp) {
 void uart_lld_start_receive(UARTDriver *uartp, size_t n, void *rxbuf) {
 
   /* Stopping previous activity (idle state).*/
+  uartp->usart->CR1 &= ~USART_CR1_IDLEIE;
   dmaStreamDisable(uartp->dmarx);
 
   /* RX DMA channel preparation.*/
@@ -919,6 +954,7 @@ void uart_lld_start_receive(UARTDriver *uartp, size_t n, void *rxbuf) {
 size_t uart_lld_stop_receive(UARTDriver *uartp) {
   size_t n;
 
+  uartp->usart->CR1 &= ~USART_CR1_IDLEIE;
   dmaStreamDisable(uartp->dmarx);
   n = dmaStreamGetTransactionSize(uartp->dmarx);
   uart_enter_rx_idle_loop(uartp);
