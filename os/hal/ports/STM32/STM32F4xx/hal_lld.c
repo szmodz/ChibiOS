@@ -250,10 +250,9 @@ void stm32_clock_init(void) {
 
   /* Flash setup.*/
 #if defined(STM32_USE_REVISION_A_FIX)
-  /* Some old revisions of F4x MCUs randomly crashes with compiler
-     optimizations enabled AND flash caches enabled. */
+  /* Flash prefetch is not supported on revision A STM32F4 MCUs. */
   if ((DBGMCU->IDCODE == 0x20006411) && (SCB->CPUID == 0x410FC241))
-    FLASH->ACR = FLASH_ACR_PRFTEN | STM32_FLASHBITS;
+    FLASH->ACR = FLASH_ACR_ICEN | FLASH_ACR_DCEN | STM32_FLASHBITS;
   else
     FLASH->ACR = FLASH_ACR_PRFTEN | FLASH_ACR_ICEN |
                  FLASH_ACR_DCEN | STM32_FLASHBITS;
